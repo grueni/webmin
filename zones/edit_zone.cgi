@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/perl
 # Shows the details of one zone, with links to make changes
 
 require './zones-lib.pl';
@@ -12,6 +12,21 @@ $p = new WebminUI::Page(&zone_title($in{'zone'}), $text{'edit_title'}, "edit");
 # Show general information
 $gform = &get_zone_form(\%in, $zinfo);
 $p->add_form($gform);
+
+# Show datasets
+$p->add_separator();
+$fform = new WebminUI::Form("edit_dataset.cgi");
+$p->add_form($fform);
+$fform->set_input(\%in);
+$ftable = new WebminUI::Table([ $text{'edit_dataset'}, ], "100%", "ftable");
+$fform->add_section($ftable);
+$ftable->set_heading($text{'edit_additional_dataset'});
+foreach $ds (@{$zinfo->{'dataset'}}) {
+  $ftable->add_row([
+    &ui_link("/zfsmanager/status.cgi?zfs=$ds->{'name'}",$ds->{'name'}),
+    ]);
+  }
+$ftable->set_emptymsg($text{'edit_fsnone'});
 
 # Show network interfaces
 $p->add_separator();
@@ -29,12 +44,13 @@ foreach $net (@{$zinfo->{'net'}}) {
 	($address, $netmask) = &get_address_netmask($net, $active);
 	$ntable->add_row([
 		&ui_link("edit_net.cgi?zone=$in{'zone'}&old=$net->{'address'}",$address),
-		$active->{'fullname'} || $text{'edit_netdown'},
+		exists $net->{'physical'} ? $net->{'physical'} : $active->{'fullname'} || $text{'edit_netdown'},
 		$netmask,
 		$active->{'broadcast'} ]);
 	}
 $ntable->set_emptymsg($text{'edit_netnone'});
 $ntable->add_link("edit_net.cgi?zone=$in{'zone'}&new=1", $text{'edit_netadd'});
+# $ntable->add_link("a",Dumper(\%$zinfo));
 
 # Show package directories
 $p->add_separator();

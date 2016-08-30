@@ -8,6 +8,7 @@ use WebminCore;
 &foreign_require("mount", "mount-lib.pl");
 
 %thing_key_map = ( "net" => "address",
+       "dataset" => "zfs",
 		   "fs" => "dir",
 		   "inherit-pkg-dir" => "dir",
 		   "capped-cpu" => "ncpus",
@@ -71,7 +72,7 @@ foreach $p ("zonepath", "autoboot", "pool", "brand") {
 
 # Add lists of things
 foreach $r ("fs", "inherit-pkg-dir", "net", "device", "rctl", "attr",
-	    "capped-cpu", "capped-memory") {
+	    "dataset", "capped-cpu", "capped-memory") {
 	local @lines;
 	eval {
 		$main::error_must_die = 1;

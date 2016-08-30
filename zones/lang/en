@@ -6,6 +6,9 @@ index_return=zone list
 index_zones=Existing Zones
 
 edit_title=Edit Zone
+edit_dataset=Dataset
+edit_additional_dataset=Additional datasets
+edit_dsnone=No additional datasets have been defined yet.
 edit_common=General zone configuration
 edit_name=Zone name
 edit_status=Current status
