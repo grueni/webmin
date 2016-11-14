@@ -1,0 +1,7 @@
+desc_ca=SES Manager
+nozone=1
+longdesc=Manage storage hardware via SES-2 in Solaris/Illumos global zones.
+os_support=solaris/11-*
+desc=SES Manager
+category=hardware
+desc_ca.UTF-8=SES Manager

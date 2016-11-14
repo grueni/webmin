@@ -1,0 +1,25 @@
+index_title=SES Manager
+Controllers=HBAs
+Enclosures=Enclosures
+Disks=Disks
+Paths=Paths
+Controller=HBA
+Enclosure=Enclosure
+Disk=Disk
+Path=Path
+
+
+index_version=0.01
+index_return=main page
+
+status_enclosure_title=Status Enclosure
+status_controller_title=Status HBA 
+status_disk_title=Status Disk
+status_path_title=Status Path
+
+eno_data_available=no data available
+eno_unknown_error=unknown error
+
+__norefs=1
+
+
