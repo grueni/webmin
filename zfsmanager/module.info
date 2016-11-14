@@ -1,0 +1,4 @@
+desc=ZFS Manager
+os_support=*-linux solaris freebsd netbsd openbsd
+category=system
+

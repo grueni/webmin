@@ -1,0 +1,695 @@
+BEGIN { push(@INC, ".."); };
+use WebminCore;
+use WebminUI::All;
+use Data::Dumper;
+use POSIX qw(strftime);
+&init_config();
+foreign_require("mount", "mount-lib.pl");
+require './property-list-en.pl';
+require 'lgl-lib.pl';
+
+my %access = &get_module_acl();
+my $sesdata = &discover_getinventory();
+
+sub print_ses 
+{
+  my ($action,$enclosure,$pool,$disk) = shift;
+  my $data = \%{$sesdata->{Disks}};
+
+# my $page = new WebminUI::Page(undef, $module_info{'desc'}, "intro", 1, 1);
+#	my $form = new WebminUI::Form();
+#	$page->add_form($form);
+#  my $table = new WebminUI::Table(
+#		[ "Location", "Device", "Model", "Serial", "Size", "Disk state", "Zpool","Vdev","Zpool state"],'100%');
+#	$form->add_section($table);
+#  while ( ($k, $v) = each %{$data} )
+#  {
+#    my $a = "0:".$v->{enclosureindex}.":".$v->{slot};
+#    my $d = $v->{device};
+#    $d =~ s/\/dev\/rdsk\///ig;
+#    my $p = (keys %{$v->{zpool}})[0];
+#    my $e = $v->{zpool}->{$p};
+#	  $table->add_row([
+#        $a,
+#        $d,
+#        $v->{model},$v->{serial},&nice_size($v->{sizemb}*1024*1024),$v->{state},
+#        $p.":",
+#        $e,$v->{zpoolstate} 
+#      ]);
+#	}
+#	$page->print();
+#	return undef;
+
+	my %tmp;
+	my @tds = [ 'align=right','align=right','align=right','align=right','align=right',
+		          'align=right','align=right','align=right','align=right' ];
+	my @tds2 = ( 'align=right' );					
+  while ( ($k, $v) = each %{$data} )
+  {
+    my $a = "00:".substr(sprintf("%04d", $v->{enclosureindex}),-2).":".substr(sprintf("%04d", $v->{slot}),-2);
+		$tmp{$a} = $v;
+	}
+
+	print &ui_columns_start([ "<p>Location</p><p><small>Sys:Encl:Slot</small></p>", 
+			"Device", "Model", "Serial", "Size", "Disk state", "Zpool","Vdev","Zpool state"],
+		  100,1,\@tds);
+	foreach my $a (sort (keys %tmp)) 
+	{
+		my $v = $tmp{$a};
+		my $d = $v->{device};
+		$d =~ s/\/dev\/rdsk\///ig;
+		my $p = (keys %{$v->{zpool}})[0];
+		my $e = $v->{zpool}->{$p};
+		print &ui_columns_row([ 
+				"<a href='/sesmanager/status.cgi?enclosure=".$v->{enclosure}."'>$a</a>",
+				"<a href='/sesmanager/status.cgi?disk=".$v->{device}."'>$d</a>",
+				$v->{model},$v->{serial},&nice_size($v->{sizemb}*1024*1024),$v->{state},
+				"<a href='status.cgi?pool=".$p."'>".$p.":</a>",
+				$e,$v->{zpoolstate} ], \@tds2);
+	}
+	print &ui_columns_end();
+}
+
+sub print_zpool {
+  my $action = shift;
+  my $zpool = shift;
+  my $os = &getOS();
+  if ($os eq 'Solaris') {
+    print ui_columns_start([ "Pool Name", "Size", "Alloc", "Free", "Cap", "Dedup", "Health"],'100%');
+    foreach $key (sort(keys %$zpool))
+    {
+      print ui_columns_row(["<a href='$action$key'>$key</a>", $zpool->{$key}->{size}, $zpool->{$key}->{alloc}, $zpool->{$key}->{free}, $zpool->{$key}->{cap}, $zpool->{$key}->{dedup}, $zpool->{$key}->{health} ]);
+    }
+  } else {
+    print ui_columns_start([ "Pool Name", "Size", "Alloc", "Free", "Frag", "Cap", "Dedup", "Health"],'%100');
+    foreach $key (sort(keys %$zpool))
+    {
+      print ui_columns_row(["<a href='$action$key'>$key</a>", $zpool->{$key}->{size}, $zpool->{$key}->{alloc}, $zpool->{$key}->{free}, $zpool->{$key}->{frag}, $zpool->{$key}->{cap}, $zpool->{$key}->{dedup}, $zpool->{$key}->{health} ]);
+    }
+  }
+  print ui_columns_end();
+}
+
+sub print_zfs {
+  my $action = shift;
+  my $zfs = shift;
+  print ui_columns_start([ "File System", "Used", "Avail", "Compressratio", "Refer", "Mountpoint" ]);
+  foreach $key (sort(keys %{$zfs}))
+  {
+    print ui_columns_row([ "<a href='$action$key'>$key</a>", $zfs{$key}{used}, $zfs{$key}{avail}, $zfs{$key}{compressratio}, $zfs{$key}{refer}, $zfs{$key}{mount} ]);
+  }
+  print ui_columns_end();
+}
+
+#return hash of properties that can be set manually and their data type
+sub properties_list
+{
+  my $os = &getOS();
+  if ($os eq "Solaris") {
+  my %list = ('atime' => 'boolean', 'canmount' => 'boolean', 'devices' => 'boolean', 'exec' => 'boolean', 'nbmand' => 'boolean', 'readonly' => 'boolean', 'setuid' => 'boolean', 'shareiscsi' => 'boolean', 'utf8only' => 'boolean', 'vscan' => 'boolean', 'zoned' => 'boolean', 'relatime' => 'boolean', 'overlay' => 'boolean',
+        'aclinherit' => 'discard, noallow, restricted, pasthrough, passthrough-x', 'aclmode' => 'discard, groupmaks, passthrough', 'casesensitivity' => 'sensitive, insensitive, mixed', 'checksum' => 'on, off, fletcher2, fletcher4, sha256', 'compression' => 'on, off, lzjb, lz4, gzip, gzip-1, gzip-2, gzip-3, gzip-4, gzip-5, gzip-6, gzip-7, gzip-8, gzip-9, zle', 'copies' => '1, 2, 3', 'dedup' => 'on, off, verify, sha256', 'logbias' => 'latency, throughput', 'normalization' => 'none, formC, formD, formKC, formKD', 'primarycache' => 'all, none, metadata', 'secondarycache' => 'all, none, metadata', 'snapdir' => 'hidden, visible', 'snapdev' => 'hidden, visible', 'sync' => 'standard, always, disabled', 'xattr' => 'on, off, sa', 'com.sun:auto-snapshot' => 'true, false', 'acltype' => 'noacl, posixacl', 'redundant_metadata' => 'all, most',
+        'quota' => 'text', 'refquota' => 'text', 'volsize' => 'text', 'filesystem_limit' => 'text', 'snapshot_limit' => 'text',
+        'mountpoint' => 'special', 'sharesmb' => 'special', 'sharenfs' => 'special', 'mounted' => 'special', 'context' => 'special', 'defcontext' => 'special', 'fscontext' => 'special', 'rootcontext' => 'special');
+  } else {
+  my %list = ('atime' => 'boolean', 'canmount' => 'boolean', 'devices' => 'boolean', 'exec' => 'boolean', 'nbmand' => 'boolean', 'readonly' => 'boolean', 'setuid' => 'boolean', 'shareiscsi' => 'boolean', 'utf8only' => 'boolean', 'vscan' => 'boolean', 'zoned' => 'boolean', 'relatime' => 'boolean', 'overlay' => 'boolean',
+        'aclinherit' => 'discard, noallow, restricted, pasthrough, passthrough-x', 'aclmode' => 'discard, groupmaks, passthrough', 'casesensitivity' => 'sensitive, insensitive, mixed', 'checksum' => 'on, off, fletcher2, fletcher4, sha256', 'compression' => 'on, off, lzjb, lz4, gzip, gzip-1, gzip-2, gzip-3, gzip-4, gzip-5, gzip-6, gzip-7, gzip-8, gzip-9, zle', 'copies' => '1, 2, 3', 'dedup' => 'on, off, verify, sha256', 'logbias' => 'latency, throughput', 'normalization' => 'none, formC, formD, formKC, formKD', 'primarycache' => 'all, none, metadata', 'secondarycache' => 'all, none, metadata', 'snapdir' => 'hidden, visible', 'snapdev' => 'hidden, visible', 'sync' => 'standard, always, disabled', 'xattr' => 'on, off, sa', 'com.sun:auto-snapshot' => 'true, false', 'acltype' => 'noacl, posixacl', 'redundant_metadata' => 'all, most',
+        'quota' => 'text', 'refquota' => 'text', 'volsize' => 'text', 'filesystem_limit' => 'text', 'snapshot_limit' => 'text', 
+        'mountpoint' => 'special', 'sharesmb' => 'special', 'sharenfs' => 'special', 'mounted' => 'special', 'context' => 'special', 'defcontext' => 'special', 'fscontext' => 'special', 'rootcontext' => 'special');
+  }
+  return %list;
+}
+
+sub pool_properties_list
+{
+  my $os = &getOS();
+  if ($os eq "Solaris") {
+  my %list = ('allocated' => 'special', 'altroot' => 'special', 'autoexpand' => 'boolean', 'autoreplace' => 'boolean', 
+        'bootfs' => 'special', 'cachefile' => 'special', 'capacity' => 'special', 'dedupratio' => 'special', 
+        'delegation' => 'boolean', 'failmode' => 'wait, continue, panic', 'free' => 'special', 'health' => 'special', 	
+        'listshares' => 'boolean', 'listsnaps' => 'boolean', 'readonly' => 'boolean',
+        'size' => 'special', 'version' => 'special'
+         );
+  } else {
+  my %list = ('autoexpand' => 'boolean', 'autoreplace' => 'boolean', 'delegation' => 'boolean', 'listsnaps' => 'boolean', 
+        'failmode' => 'wait, continue, panic', 'feature@async_destroy' => 'enabled, disabled', 'feature@empty_bpobj' => 'enabled, disabled', 'feature@lz4_compress' => 'enabled, disabled', 'feature@embedded_data' => 'enabled, disabled', 'feature@enabled_txg' => 'enabled, disabled', 'feature@bookmarks' => 'enabled, disabled', 'feature@hole_birth' => 'enabled, disabled', 'feature@spacemap_histogram' => 'enabled, disabled', 'feature@extensible_dataset' => 'enabled, disabled', 'feature@large_blocks' => 'enabled, disabled', 'feature@filesystem_limits' => 'enabled, disabled',
+        'altroot' => 'special', 'bootfs' => 'special', 'cachefile' => 'special', 'comment' => 'special');
+  }
+  return %list;
+}
+
+sub create_opts #options and defaults when creating new pool or filesystem
+{
+  my %list = ( 'atime' => 'on', 'compression' => 'off', 'dedup' => 'off', 'readonly' => 'off', 'utf8only' => 'off', 'xattr' => 'on' );
+  return %list;
+}
+
+sub get_zfsmanager_config
+{
+   my %rv;
+   $rv{'pool_destroy'} = $config{'pool_destroy'};
+   $rv{'zfs_destroy'} = $config{'zfs_destroy'};
+   $rv{'snap_destroy'} = $config{'snap_destroy'};
+   $rv{'pool_properties'} = $config{'pool_properties'};
+   $rv{'zfs_properties'} = $config{'zfs_properties'};
+   $rv{'snap_properties'} = $config{'snap_properties'};
+   $rv{'list_snap'} = $config{'list_snap'};
+   return %rv;
+}
+
+#determine if a property can be edited
+sub can_edit
+{
+  my ($zfs, $property) = @_;
+  %conf = get_zfsmanager_config();
+  %zfs_props = properties_list();
+  %pool_props = pool_properties_list();
+  my %type = zfs_get($zfs, 'type');
+  if ($type{$zfs}{type}{value} =~ 'snapshot') { return 0; } 
+  elsif (($zfs_props{$property} && $conf{'zfs_properties'}) || ($pool_props{$property} && $conf{'pool_properties'})) { return 1; }
+}
+
+sub list_zpools
+{
+  my ($pool) = @_;
+  my $hash = {};
+  my $os = &getOS();
+  if ($os eq "Solaris") {
+     #expecting NAME SIZE ALLOC FREE FRAG CAP DEDUP HEALTH ALTROOT
+     $list=`zpool list -o name,size,alloc,free,cap,dedup,health,altroot -H $pool`;
+  } else {
+     #expecting NAME SIZE ALLOC FREE FRAG CAP DEDUP HEALTH ALTROOT
+     $list=`zpool list -o name,size,alloc,free,frag,cap,dedup,health,altroot -H $pool`;
+  }
+
+  open my $fh, "<", \$list;
+  while (my $line =<$fh>)
+  {
+    chomp ($line);
+    if ($os eq "Solaris") {
+       my($name, $size, $alloc, $free, $cap, $dedup, $health, $altroot) = split(" ", $line);
+	     $hash->{$name} = { size => $size, alloc => $alloc, free => $free, cap => $cap, dedup => $dedup, health => $health, altroot => $altroot };
+    } else {
+       my($name, $size, $alloc, $free, $frag, $cap, $dedup, $health, $altroot) = split(" ", $line);
+       $hash->{$name} = { size => $size, alloc => $alloc, free => $free, frag => $frag, cap => $cap, dedup => $dedup, health => $health, altroot => $altroot };
+    }
+  }
+  return $hash;
+}
+
+sub list_zfs
+{
+#zfs list
+  my ($zfs) = @_;
+  my $list = `zfs list -o name,used,avail,compressratio,refer,mountpoint -H $zfs`;
+  my %hash = ();
+#expecting NAME USED AVAIL REFER MOUNTPOINT
+  open my $fh, "<", \$list;
+  while (my $line =<$fh>)
+  {
+    chomp ($line);
+    my($name, $used, $avail, $compressratio, $refer, $mount) = split(" ", $line);
+	  $hash{$name} = { used => $used, avail => $avail, compressratio => $compressratio, refer => $refer, mount => $mount };
+  }
+  return %hash;
+}
+
+sub list_snapshots
+{
+  my ($snap) = @_;
+  #zfs list -t snapshot
+  my %hash=();
+  #expecting NAME USED AVAIL REFER MOUNTPOINT
+  $list=`zfs list -t snapshot -H $snap`;
+
+  open my $fh, "<", \$list;
+  while (my $line =<$fh>)
+  {
+    chomp ($line);
+    my($name, $used, $avail, $refer, $mount) = split(" ", $line);
+    $hash{$name} = { used => $used, avail => $avail, refer => $refer, mount => $mount };
+  }
+  return %hash;
+}
+
+sub get_alerts
+{
+  my ($pool) = @_;
+  my $alerts = `zpool status -x $pool`;
+  my %status = ();
+  my $pool = ();
+  if ($alerts =~ /healthy/)
+  {
+    return $alerts;
+  } else
+  {
+    open my $fh, "<", \$alerts;
+    while (my $line =<$fh>)
+    {
+      chomp ($line);
+      $line =~ s/^\s*(.*?)\s*$/$1/;
+      my($key, $value) = split(/:/, $line);
+      $key =~ s/^\s*(.*?)\s*$/$1/;
+      $value =~ s/^\s*(.*?)\s*$/$1/;
+      if (($key =~ 'pool') && ($value))
+      {
+        $pool = $value;
+        $status = ( $value );
+      } elsif ((($key =~ 'state') || ($key =~ 'errors')) && ($value))
+      {
+        $status{$pool}{$key} = $value;
+      }
+    }
+    my $out = "<b>";
+    foreach $key (sort(keys %status))
+    {
+      if (true) { $out .= "pool \'".$key."\' is ".$status{$key}{state}." with ".$status{$key}{errors}."<br />";}
+    }
+    $out .= "</b>";
+    return $out;
+  }
+}
+
+sub zpool_status
+{
+  my ($pool)=@_;
+  my $parent = "pool";
+  my %status = ();
+  my $cmd  = `zpool status $pool`;
+  my $devs = 0;
+  my $devi = sprintf("%08d", $devs);
+  (undef, $cmdout) = split(/  pool: /, $cmd);
+  ($status{$devi}{pool}, $cmdout) = split(/ state: /, $cmdout);
+  chomp $status{$devi}{pool};
+  if (index($cmd, "status: ") != -1) {
+    ($status{$devi}{state}, $cmdout) = split("status: ", $cmdout);
+    ($status{$devi}{status}, $cmdout) = split("action: ", $cmdout);
+    if (index($cmd, "  see: ") != -1) {
+      ($status{$devi}{action}, $cmdout) = split("  see: ", $cmdout);
+      ($status{$devi}{see}, $cmdout) = split("  scan: ", $cmdout);
+    } else { ($status{$devi}{action}, $cmdout) = split("  scan: ", $cmdout); }
+  } else {
+    ($status{$devi}{state}, $cmdout) = split("  scan: ", $cmdout);
+  }
+  ($status{$devi}{scan}, $cmdout) = split("config:", $cmdout);
+  ($status{$devi}{config}, $status{$devi}{errors}) = split("errors: ", $cmdout);
+
+  $fh= $status{$devi}{config};
+  @array = split("\n", $fh);
+  foreach $line (@array) #while (my $line =<$fh>)
+  {
+    $devi = sprintf("%08d", $devs);
+    chomp ($line);
+    my($name, $state, $read, $write, $cksum) = split(" ", $line);
+
+    if ($name =~ "NAME") { 
+      #do nothing
+    } elsif ($name =~ $pool && length($name) == length($pool)) {
+			$status{$devi} = {name => $name, state => $state, read => $read, write => $write, cksum => $cksum, parent => "pool", type => "pool"};
+      $devs++;
+
+    #check if vdev is a log or cache vdev
+    } elsif (($name =~ /log/) || ($name =~ /cache/)) {
+      $status{$devi} = {name => $name, state => $state, read => $read, write => $write, cksum => $cksum, parent => "pool", type => $name};
+      $parent = $devi;
+      $devs++;
+
+    #check if vdev is a mirror, raidz or spare
+    } elsif (($name =~ /mirror/) || ($name =~ /raidz/) || ($name =~ /spare/)) {
+      $status{$devi} = {name => $name, state => $state, read => $read, write => $write, cksum => $cksum, parent => "pool", type => "vdev"};
+      $parent = $devi;
+      $devs++;
+
+    #for all other vdevs, should be actual devices at this point
+    } elsif ($name) {
+      $status{$devi} = {name => $name, state => $state, read => $read, write => $write, cksum => $cksum, parent => $parent, type => "disk"};
+      $devs++;
+    }
+  }
+  return %status;
+}
+
+#zfs_get($pool, $property)
+sub zfs_get
+{
+  my ($zfs, $property) = @_;
+  if (~$property) {my $property="all";}
+#  my $os = &getOS();
+  my %hash=();
+  my $get=`zfs get -H $property $zfs`;
+  open my $fh, "<", \$get;
+  #expecting NAME PROPERTY VALUE SOURCE
+  while (my $line = <$fh>)
+  {
+    chomp ($line);
+#    if ($os eq "Solaris") {$line =~ s/ +/\t/g;}
+    my($name, $property, $value, $source) = split(/\t/, $line);
+    $hash{$name}{$property} = { value => $value, source => $source };
+    #$hash->{$name->{$property->{'value'}}} = $value;
+    #$hash->{$name->{$property->{'source'}}} = $source;
+  }
+  return %hash;
+}
+
+#zpool_get($pool, $property)
+sub zpool_get
+{
+  my ($pool, $property) = @_;
+  if (~$property) {my $property="all";}
+  my $os = &getOS();
+  my %hash=();
+  my $get;
+  if ($os eq "Solaris") {
+    if ($pool eq "") {
+      $get = `zpool list -o name -H|xargs zpool get all |grep -v NAME`;
+    } else {
+      $get = `zpool get all $pool|grep -v NAME`;
+    }
+  } else {
+    $get=`zpool get -H $property $pool`;
+  }
+
+  #expecting NAME PROPERTY VALUE SOURCE
+  open my $fh, "<", \$get;
+  while (my $line = <$fh>)
+  {
+    chomp ($line);
+    if ($os eq "Solaris") {$line =~ s/ +/\t/g;}
+    my($name, $property, $value, $source) = split(/\t/, $line);
+    $hash{$name}{$property} = { value => $value, source => $source };
+  }
+  return %hash;
+}
+
+sub zpool_imports
+{
+  my ($dir, $destroyed) = @_;
+  if ($dir) { $dir = '-d '.$dir; }
+  my %status = ();
+  #my $parent = 'pool';
+  my $cmd = `zpool import $dir $destoryed`;
+  #my @array = split("\n", `zpool import $dir $destroyed`);
+  #(undef, $cmdout) = split(/  pool: /, $cmd);
+  $count = 0;
+  @pools = split(/  pool: /, $cmd);
+  shift (@pools);
+  foreach $cmdout (@pools) {
+    ($status{$count}{pool}, $cmdout) = split(/ id: /, $cmdout);
+    chomp $status{$count}{pool};
+    ($status{$count}{id}, $cmdout) = split(/ state: /, $cmdout);
+    chomp $status{$count}{id};
+    if (index($cmdout, "status: ") != -1) { 
+      ($status{$count}{state}, $cmdout) = split("status: ", $cmdout); 
+      ($status{$count}{status}, $cmdout) = split("action: ", $cmdout); 
+      if (index($cmdout, "  see: ") != -1) { 
+        ($status{$count}{action}, $cmdout) = split("  see: ", $cmdout); 
+        ($status{$count}{see}, $cmdout) = split("config:\n", $cmdout); 
+      } else { ($status{$count}{action}, $cmdout) = split("config:\n", $cmdout); }
+    } else {
+      ($status{$count}{state}, $cmdout) = split("action: ", $cmdout); 
+      ($status{$count}{action}, $cmdout) = split("config:\n", $cmdout);
+    }
+    #($status{$count}{config}) = split("config: \n", $cmdout); 
+    $status{$count}{config} = $cmdout;
+  $count++;
+  }
+  return %status;
+}
+
+sub diff
+{
+  my ($snap, $parent) = @_;
+  my @array = split("\n", `zfs diff -FH $snap`);
+  return @array;
+}
+
+
+sub list_disk_ids
+{
+#use Cwd 'abs_path';
+  my $byid = '/dev/disk/by-id'; #for linux
+  my $byuuid = '/dev/disk/by-uuid';
+  opendir (DIR, $byid);
+  %hash = ();
+  while (my $file = readdir(DIR)) 
+  {
+    if (!-d $byid."/".$file ) { $hash{'byid'}{$file} = readlink($byid."/".$file); }
+  }
+  opendir (DIR, $byuuid);
+  while (my $file = readdir(DIR)) 
+  {
+    if (!-d $byuuid."/".$file ) { $hash{'byuuid'}{$file} = readlink($byuuid."/".$file); }
+  }
+  return %hash;
+}
+
+sub cmd_create_zfs
+#deprecated
+{
+  my ($zfs, $options)  = @_;
+  my $opts = ();
+  my %createopts = create_opts();
+  $createopts{'volblocksize'} = '8k';
+  #$createopts{'sparse'} = '0';
+  if (${$options}{'sparse'}) { $opts .= "-s "; }
+  delete ${$options}{'sparse'};
+  if (${$options}{'zvol'}) { 
+    $zfs = "-V ".${$options}{'zvol'}." ".$zfs; 
+    delete ${$options}{'zvol'};
+  }
+  foreach $key (sort(keys %${options}))
+  {
+    $opts = (($createopts{$key}) && (${$options}{$key} =~ 'default')) ? $opts : $opts.' -o '.$key.'='.${$options}{$key};
+  }
+  my $cmd="zfs create $opts $zfs";
+  #my @result = ($cmd, `$cmd 2>&1`);
+  return $cmd;
+}
+
+sub cmd_create_zpool
+#deprecated
+{
+  my ($pool, $dev, $options, $poolopts, $force) = @_;
+  my $opts = ();
+  #my %createopts = create_opts();
+  #if ( $options{'version'} ) { $opts .= "-o version=".$options{'version'}; }
+  foreach $key (sort(keys %{$poolopts}))
+  {
+    $opts = (${$poolopts}{$key} =~ 'default') ? $opts : $opts.' -o '.$key.'='.${$poolopts}{$key};
+  }
+  foreach $key (sort(keys %{$options}))
+  {
+    $opts = (${$options}{$key} =~ 'default') ? $opts : $opts.' -O '.$key.'='.${$options}{$key};
+  }
+  #if ($opts) { $opts = '-O '.$opts; }
+  #$mount = ($mount) ? '-m '.$mount : ();
+  my $cmd="zpool create $force $opts $pool $dev";
+  #my @result = ($cmd, `$cmd 2>&1`);
+  return $cmd;
+}
+
+sub find_parent
+{
+  my ($filesystem) = @_;
+  my %parent = ();
+  ($parent{'pool'}) = split('/', $filesystem);
+  ($parent{'filesystem'}) = split('@', $filesystem);
+  return %parent;
+}
+
+sub ui_cmd
+{
+  #my ($message, @result) = @_;
+  my ($message, $cmd) = @_;
+  $rv = "Attempting to $message with command... <br />\n";
+  $rv .= "<i># ".$cmd."</i><br /><br />\n";
+  if (!$in{'confirm'}) {
+    $rv .= ui_form_start('cmd.cgi', 'post');
+    foreach $key (keys %in) {
+        $rv .= ui_hidden($key, $in{$key});
+    }
+    $rv .= "<h3>Would you lke to continue?</h3>\n";
+    $rv .= ui_submit("yes", "confirm", 0)."<br />";
+    #$rv .= ui_submit("yes", "confirm", 0, "style='background-color: transparent;border: none;color: blue;cursor: pointer;'")." | <a href='status.cgi?zfs=".$in{'zfs'}."'>no</a>";
+    $rv .= ui_form_end();
+    #$rv .= "confirm=".$confirm."</br>";
+  } else {
+    @result = (`$cmd 2>&1`);
+    if (!$result[0])
+    {
+      #$rv .= $result[1]."<br />\n";
+      $rv .= "Success! <br />\n";
+    } else  {
+    #$result[1] =~ s/\R/ /g;
+    $rv .= "<b>error: </b>".$result[0]."<br />\n";
+    foreach $key (@result[1..@result]) {
+      $rv .= $key."<br />\n";
+    }
+    #print Dumper(@result);
+    }
+  }
+  return $rv;
+}
+
+sub ui_popup_link
+#deprecated
+{
+  my ($name, $url)=@_;
+  return "<a onClick=\"\window.open('$url', 'cmd', 'toolbar=no,menubar=no,scrollbars=yes,width=600,height=400,resizable=yes'); return false\"\ href='$url'>$name</a>";
+}
+
+sub ui_zpools_list
+{
+	print &ui_table_start($text{'ZFS pools'}, undef);
+	my @leftlinks = ();
+  my @rightlinks = ();
+	push(@leftlinks, &ui_link("create.cgi?create=zpool",'Create new pool') );
+	push(@leftlinks, &ui_link("create.cgi?import=1",'Import pool') );
+	local @grid = ( &ui_links_row(\@leftlinks), &ui_links_row($rightlinks) );
+	print &ui_grid_table(\@grid, 2, 100, [ "align=left", "align=right" ]);
+	my $zpool = list_zpools();
+	print_zpool('status.cgi?pool=',\%$zpool);
+	print &ui_table_end();
+}
+
+sub ui_zpool_status
+{
+  my ($pool, $action) = @_;
+  if ($action eq undef) { $action = "status.cgi?pool="; }
+  my $zpool = list_zpools($pool);
+  print_zpool($action,\%$zpool);
+}
+
+sub ui_zpool_properties
+{
+  my ($pool) = @_;
+  my %hash = zpool_get($pool, "all");
+  my %props =  property_desc();
+  my %properties = pool_properties_list();
+#  print ui_table_start("Properties", "width=100%", undef);
+  foreach $key (sort(keys %{$hash{$pool}}))
+  {
+    if (exists $properties{$key} || exists $props{$key})
+    {
+      print ui_table_row('<a href="property.cgi?pool='.$pool.'&property='.$key.'">'.$key.'</a>', $hash{$pool}{$key}{value});
+    } else {
+      print ui_table_row($key, $hash{$pool}{$key}{value});
+    #print ui_table_row($key, $hash{$pool}{$key}{value});
+    }
+  }
+#  print ui_table_end();
+}
+
+sub ui_zfs_list
+{
+  local ($zfs, $action)=@_;
+  %conf = get_zfsmanager_config();
+	local %zfs = list_zfs($zfs);
+  if ($action eq undef) { $action = "status.cgi?zfs="; }
+	print &ui_table_start($text{'ZFS filesystems & datasets'}, undef);
+  local @leftlinks = ();
+  local @rightlinks = ();
+  if ($conf{'zfs_properties'}) { 
+    push(@leftlinks, &ui_link("create.cgi?create=zfs",'Create file system') );
+  }
+  local @grid = ( &ui_links_row(\@leftlinks), &ui_links_row($rightlinks) );
+  print &ui_grid_table(\@grid, 2, 100, [ "align=left", "align=right" ]);
+	print_zfs($action,\%zfs);
+	print &ui_table_end();
+}
+
+sub ui_zfs_properties
+{
+  my ($zfs)=@_;
+#  print "<pre>zfs=$zfs</pre>";
+  my %hash = zfs_get($zfs, "all");
+#  print Dumper(\%hash);
+  if (!exists $hash{$zfs}{'com.sun:auto-snapshot'}) { $hash{$zfs}{'com.sun:auto-snapshot'}{'value'} = '-'; }
+  my %props =  property_desc();
+  my %properties = properties_list();
+# TODO: order of input, not alphabetically
+  foreach $key (sort(keys %{$hash{$zfs}}))
+  {		
+    if (($properties{$key}) || ($props{$key}))
+    {		
+      if ($key =~ 'origin') { 
+        print ui_table_row('<a href="property.cgi?zfs='.$zfs.'&property='.$key.'">'.$key.'</a>', "<a href='status.cgi?snap=$hash{$zfs}{$key}{value}'>$hash{$zfs}{$key}{value}</a>");
+      } else { 
+        print ui_table_row('<a href="property.cgi?zfs='.$zfs.'&property='.$key.'">'.$key.'</a>', $hash{$zfs}{$key}{value}); }
+    } else {
+      print ui_table_row($key, $hash{$zfs}{$key}{value});
+    }
+  }
+}
+
+sub ui_snapshot_list
+{
+  local ($zfs) = @_;
+  %snapshot = list_snapshots($zfs);
+  %conf = get_zfsmanager_config();
+  local @leftlinks = ();
+  local @rightlinks = ();
+
+  print &ui_table_start($text{'Snapshots'}, undef);
+  if ($conf{'snap_destroy'}) { 
+    push(@leftlinks, &ui_form_start('cmd.cgi', 'post') );
+    push(@leftlinks, &ui_hidden('cmd', 'multisnap' ) );
+    push(@leftlinks, &select_all_link('select', '', "Select All").&select_invert_link('select', '', "Invert Selection") );
+    push(@leftlinks, " | ".&ui_submit("Destroy selected snapshots") );
+  }
+  if ($conf{'snap_properties'}) {
+    push(@leftlinks, " | ".&ui_link("create.cgi?create=snapshot",'Create snapshot') );
+  }
+  local @grid = ( &ui_links_row(\@leftlinks), &ui_links_row($rightlinks) );
+  print &ui_grid_table(\@grid, 2, 100, [ "align=left", "align=right" ]);
+  print ui_columns_start([ "Snapshot", "Used", "Refer" ]);
+  local $num = 0;
+  foreach $key (sort(keys %snapshot))
+  {
+    if ($conf{'snap_destroy'}) {
+      print ui_columns_row([ui_checkbox("select", $key.";", "<a href='status.cgi?snap=$key'>$key</a>"), $snapshot{$key}{used}, $snapshot{$key}{refer} ]);
+      $num ++;
+    } else {
+      print ui_columns_row([ "<a href='status.cgi?snap=$key'>$key</a>", $snapshot{$key}{used}, $snapshot{$key}{refer} ]);
+    }
+  }
+  print ui_columns_end();
+  if ($conf{'snap_destroy'}) {
+#    print select_all_link('select', '', "Select All"), " | ", select_invert_link('select', '', "Invert Selection");
+#    print " | ".ui_submit("Destroy selected snapshots");
+    print ui_form_end();
+  }    
+  print &ui_table_end();
+}
+
+sub ui_snapshot_create
+{
+  my ($zfs) = @_;
+  $rv = ui_form_start('cmd.cgi', 'post')."\n";
+  $rv .= "Create new snapshot based on filesystem: ".$zfs."<br />\n";
+  my $date = strftime "zfs_manager_%Y-%m-%d-%H%M", localtime;
+  $rv .= $zfs."@ ".ui_textbox('snap', $date, 28)."\n";
+  $rv .= ui_hidden('zfs', $zfs)."\n";
+  $rv .= ui_hidden('cmd', "snapshot")."\n";
+  $rv .= ui_submit("Create");
+  $rv .= ui_form_end();
+  return $rv;
+}
+
+sub ui_ses_list
+{
+  my $in = shift;
+	my $enclosure = $in->{enclosure};
+	my $pool = $in->{pool};
+	my $disk = $in->{disk};;
+
+  print &ui_table_start($text{'SES'}, undef);
+  my @leftlinks = ();
+  my @rightlinks = ();
+  push(@leftlinks, &ui_link("create.cgi?discover=1",'Discover configuration') );
+  my @grid = ( &ui_links_row(\@leftlinks), &ui_links_row($rightlinks) );
+  print &ui_grid_table(\@grid, 2, 100, [ "align=left", "align=right" ]);
+  &print_ses('status.cgi?ses=',$enclosure,$pool,$disk);
+  print &ui_table_end();
+
+}
+
