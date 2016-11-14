@@ -1,0 +1,5 @@
+desc=Cluster Storage
+category=cluster
+version=1.810
+longdesc=Run commands on multiple storage servers at once.
+depends=1.810
